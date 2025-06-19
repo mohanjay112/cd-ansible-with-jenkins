@@ -9,7 +9,7 @@
   tasks:
     - name: Download latest WAR from Nexus
       get_url:
-        url: "http://{{USER}}:{{PASS}}@{{nexusip}}:8081/repository/{{reponame}}/{{groupid}}/{{time}}/{{build}}/{{vprofile_version}}"
+        url: "http://{{USER}}:{{PASS}}@{{nexusip}}:8081/repository/{{reponame}}/{{groupid}}/{{build}}/{{vprofile_version}}"
         dest: "{{ dest_dir }}/ROOT.war"
         mode: '0644'
         url_username: "{{ USER }}"
