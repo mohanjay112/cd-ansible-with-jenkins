@@ -1,4 +1,4 @@
-- name: Setup Tomcat 9 on Ubuntu
+- name: Setup Tomcat 8 on Ubuntu
   hosts: appsrvgrp
   become: yes
 
@@ -20,29 +20,34 @@
         shell: /bin/false
         create_home: no
 
+    - name: Remove existing Tomcat directory (if any)
+      file:
+        path: /usr/local/tomcat
+        state: absent
+
     - name: Create tomcat directory
       file:
-        path: /usr/local/tomcat9
+        path: /usr/local/tomcat
         state: directory
         owner: tomcat
         group: tomcat
         mode: '0755'
 
-    - name: Download Tomcat 9.0.106
+    - name: Download Tomcat 8.5.97
       get_url:
-        url: https://dlcdn.apache.org/tomcat/tomcat-9/v9.0.106/bin/apache-tomcat-9.0.106.tar.gz
-        dest: /tmp/apache-tomcat.tar.gz
+        url: https://archive.apache.org/dist/tomcat/tomcat-8/v8.5.97/bin/apache-tomcat-8.5.97.tar.gz
+        dest: /tmp/apache-tomcat8.tar.gz
 
     - name: Extract Tomcat
       unarchive:
-        src: /tmp/apache-tomcat.tar.gz
-        dest: /usr/local/tomcat9
+        src: /tmp/apache-tomcat8.tar.gz
+        dest: /usr/local/tomcat
         remote_src: yes
         extra_opts: [--strip-components=1]
 
     - name: Set ownership
       file:
-        path: /usr/local/tomcat9
+        path: /usr/local/tomcat
         state: directory
         recurse: yes
         owner: tomcat
@@ -53,19 +58,19 @@
         dest: /etc/systemd/system/tomcat.service
         content: |
           [Unit]
-          Description=Apache Tomcat 9 Web Application Container
+          Description=Apache Tomcat 8 Web Application Container
           After=network.target
 
           [Service]
           Type=forking
 
           Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-          Environment=CATALINA_PID=/usr/local/tomcat9/temp/tomcat.pid
-          Environment=CATALINA_HOME=/usr/local/tomcat9
-          Environment=CATALINA_BASE=/usr/local/tomcat9
+          Environment=CATALINA_PID=/usr/local/tomcat/temp/tomcat.pid
+          Environment=CATALINA_HOME=/usr/local/tomcat
+          Environment=CATALINA_BASE=/usr/local/tomcat
           Environment='CATALINA_OPTS=-Xms512M -Xmx1024M -server -XX:+UseParallelGC'
-          ExecStart=/usr/local/tomcat9/bin/startup.sh
-          ExecStop=/usr/local/tomcat9/bin/shutdown.sh
+          ExecStart=/usr/local/tomcat/bin/startup.sh
+          ExecStop=/usr/local/tomcat/bin/shutdown.sh
           User=tomcat
           Group=tomcat
           UMask=0007
