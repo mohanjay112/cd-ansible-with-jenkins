@@ -5,12 +5,13 @@
 
   vars:
     dest_dir: /usr/local/tomcat8/webapps
+    war_temp_path: "/tmp/vproapp-{{ vprofile_version }}"
 
   tasks:
     - name: Download latest WAR from Nexus
       get_url:
-        url: "http://{{ nexusip }}:8081/repository/{{ reponame }}/{{ groupid }}/{{ time }}/ {{ build }} /{{ vprofile_version }}"
-        dest: "/tmp/vproapp-{{vprofile_version}}"
+        url: "http://{{ nexusip }}:8081/repository/{{ reponame }}/{{ groupid }}/{{ time }}/{{ build }}/{{ vprofile_version }}"
+        dest: "{{ war_temp_path }}"
         mode: '0644'
         url_username: "{{ USER }}"
         url_password: "{{ PASS }}"
@@ -35,9 +36,12 @@
 
     - name: Deploy new WAR
       copy:
-        src: "{{ dest_dir }}/ROOT.war"
+        src: "{{ war_temp_path }}"
         dest: "{{ dest_dir }}/ROOT.war"
         remote_src: yes
+        owner: tomcat
+        group: tomcat
+        mode: '0644'
 
     - name: Start tomcat service
       systemd:
