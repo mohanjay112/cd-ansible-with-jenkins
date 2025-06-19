@@ -1,114 +1,90 @@
-- name: Common tool setup on all the servers
+---
+- name: Setup Tomcat on Ubuntu
   hosts: appsrvgrp
   become: yes
-  vars:
-    tom_url: https://archive.apache.org/dist/tomcat/tomcat-8/v8.5.37/bin/apache-tomcat-8.5.37.tar.gz
 
   tasks:
-    - name: Install JDK on CentOS
-      yum:
-        name: java-1.8.0-openjdk.x86_64
-        state: present
-      when: ansible_distribution == 'CentOS'
-
-    - name: Install JDK on Ubuntu
+    - name: Install Java
       apt:
-        name: openjdk-8-jdk
+        name: openjdk-17-jdk
         state: present
         update_cache: yes
-      when: ansible_distribution == 'Ubuntu'
-
-    - name: Download Tomcat Tar Ball
-      get_url:
-        url: "{{ tom_url }}"
-        dest: /tmp/tomcat-8.tar.gz
 
     - name: Add tomcat group
       group:
         name: tomcat
-        state: present
 
     - name: Add tomcat user
       user:
         name: tomcat
         group: tomcat
-        shell: /bin/nologin
-        home: /usr/local/tomcat8
+        shell: /bin/false
+        create_home: no
 
     - name: Create tomcat directory
       file:
-        path: /tmp/tomcat8
+        path: /usr/local/tomcat8
         state: directory
+        owner: tomcat
+        group: tomcat
+        mode: '0755'
+
+    - name: Download Tomcat
+      get_url:
+        url: https://dlcdn.apache.org/tomcat/tomcat-8/v8.5.97/bin/apache-tomcat-8.5.97.tar.gz
+        dest: /tmp/apache-tomcat.tar.gz
 
     - name: Extract Tomcat
       unarchive:
-        src: /tmp/tomcat-8.tar.gz
-        dest: /tmp/tomcat8/
+        src: /tmp/apache-tomcat.tar.gz
+        dest: /usr/local/tomcat8
         remote_src: yes
-        list_files: yes
-      register: unarchive_info
-
-    - name: Get extracted folder name
-      debug:
-        msg: "{{ unarchive_info.files[0].split('/')[0] }}"
-
-    - name: Synchronize Tomcat to /usr/local/tomcat8
-      synchronize:
-        src: "/tmp/tomcat8/{{ unarchive_info.files[0].split('/')[0] }}/"
-        dest: /usr/local/tomcat8/
-      delegate_to: "{{ inventory_hostname }}"
+        extra_opts: [--strip-components=1]
 
     - name: Set ownership
       file:
         path: /usr/local/tomcat8
+        state: directory
+        recurse: yes
         owner: tomcat
         group: tomcat
-        recurse: yes
 
-    - name: Setup Tomcat service for Ubuntu 16+
-      template:
-        src: templates/ubuntu16-svcfile.j2
+    - name: Copy Tomcat systemd service file
+      copy:
         dest: /etc/systemd/system/tomcat.service
-        mode: "a+x"
-      when: ansible_distribution == 'Ubuntu' and ansible_distribution_major_version | int >= 16
+        content: |
+          [Unit]
+          Description=Apache Tomcat Web Application Container
+          After=network.target
 
-    - name: Setup Tomcat service for Ubuntu 14/15
-      template:
-        src: templates/ubuntu14_15-svcfile.j2
-        dest: /etc/init.d/tomcat
-        mode: "a+x"
-      when: ansible_distribution == 'Ubuntu' and ansible_distribution_major_version | int < 16
+          [Service]
+          Type=forking
 
-    - name: Setup Tomcat service for CentOS 7
-      template:
-        src: templates/epel7-svcfile.j2
-        dest: /etc/systemd/system/tomcat.service
-        mode: "a+x"
-      when: ansible_distribution == 'CentOS' and ansible_distribution_major_version == '7'
+          Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+          Environment=CATALINA_PID=/usr/local/tomcat8/temp/tomcat.pid
+          Environment=CATALINA_HOME=/usr/local/tomcat8
+          Environment=CATALINA_BASE=/usr/local/tomcat8
+          Environment='CATALINA_OPTS=-Xms512M -Xmx1024M -server -XX:+UseParallelGC'
+          ExecStart=/usr/local/tomcat8/bin/startup.sh
+          ExecStop=/usr/local/tomcat8/bin/shutdown.sh
+          User=tomcat
+          Group=tomcat
+          UMask=0007
+          RestartSec=10
+          Restart=always
 
-    - name: Setup Tomcat service for CentOS 6
-      template:
-        src: templates/epel6-svcfile.j2
-        dest: /etc/init.d/tomcat
-        mode: "a+x"
-      when: ansible_distribution == 'CentOS' and ansible_distribution_major_version == '6'
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - Reload systemd
+        - Start and enable tomcat
 
-    - name: Enable Tomcat service for Ubuntu 14/15
-      command: update-rc.d tomcat defaults
-      when: ansible_distribution == 'Ubuntu' and ansible_distribution_major_version | int < 16
+  handlers:
+    - name: Reload systemd
+      command: systemctl daemon-reexec
 
-    - name: Enable Tomcat service for CentOS 6
-      command: chkconfig --add tomcat
-      when: ansible_distribution == 'CentOS' and ansible_distribution_major_version == '6'
-
-    - name: Reload systemd (Ubuntu 16+/CentOS 7+)
+    - name: Start and enable tomcat
       systemd:
-        daemon_reload: yes
-      when: (ansible_distribution == 'Ubuntu' and ansible_distribution_major_version | int >= 16) or
-            (ansible_distribution == 'CentOS' and ansible_distribution_major_version | int >= 7)
-
-    - name: Start and enable Tomcat
-      service:
         name: tomcat
-        state: started
         enabled: yes
+        state: started
