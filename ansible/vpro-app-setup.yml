@@ -1,55 +1,106 @@
----
-- name: Deploy vprofile WAR to Tomcat
+- name: Setup Tomcat9 & Deploy Artifact
   hosts: appsrvgrp
   become: yes
-
   vars:
-    dest_dir: /usr/local/tomcat8/webapps
-    war_temp_path: "/tmp/vproapp-{{ vprofile_version }}"
+    timestamp: "{{ansible_date_time.date}}_{{ansible_date_time.hour}}_{{ansible_date_time.minute}}"
 
   tasks:
-    - name: Download latest WAR from Nexus
+    - name: Download latest VProfile.war from nexus
       get_url:
-        url: "http://{{ nexusip }}:8081/repository/{{ reponame }}/{{ groupid }}/{{ time }}/{{ build }}/{{ vprofile_version }}"
-        dest: "{{ war_temp_path }}"
-        mode: '0644'
-        url_username: "{{ USER }}"
-        url_password: "{{ PASS }}"
-        force: yes
+        url: "http://{{USER}}:{{PASS}}@{{nexusip}}:8081/repository/{{reponame}}/{{groupid}}/{{time}}/{{build}}/{{vprofile_version}}"
+        dest: "/tmp/vproapp-{{vprofile_version}}"
+      register: wardeploy
+      tags:
+        - deploy
+
+    - stat:
+        path: /usr/local/tomcat9/webapps/ROOT
+      register: artifact_stat
+      tags:
+        - deploy
 
     - name: Stop tomcat service
-      systemd:
+      service:
         name: tomcat
         state: stopped
+      tags:
+        - deploy
 
-    - name: Backup existing ROOT folder
-      shell: |
-        if [ -d {{ dest_dir }}/ROOT ]; then
-          timestamp=$(date +%Y%m%d%H%M%S)
-          mv {{ dest_dir }}/ROOT {{ dest_dir }}/ROOT_$timestamp
-        fi
+    - name: Try Backup and Deploy
+      block:
+        - name: Archive ROOT dir with timestamp
+          archive:
+            path: /usr/local/tomcat9/webapps/ROOT
+            dest: "/opt/ROOT_{{timestamp}}.tgz"
+          when: artifact_stat.stat.exists
+          register: archive_info
+          tags:
+            - deploy
 
-    - name: Remove old ROOT.war
-      file:
-        path: "{{ dest_dir }}/ROOT.war"
-        state: absent
+        - name: Copy ROOT dir with old_ROOT name
+          shell: cp -r ROOT old_ROOT
+          args:
+            chdir: /usr/local/tomcat9/webapps/
 
-    - name: Deploy new WAR
-      copy:
-        src: "{{ war_temp_path }}"
-        dest: "{{ dest_dir }}/ROOT.war"
-        remote_src: yes
-        owner: tomcat
-        group: tomcat
-        mode: '0644'
+        - name: Delete current artifact
+          file:
+            path: "{{ item }}"
+            state: absent
+          when: archive_info.changed
+          loop:
+            - /usr/local/tomcat9/webapps/ROOT
+            - /usr/local/tomcat9/webapps/ROOT.war
+          tags:
+            - deploy
+
+        - name: Try deploy artifact else restore from previous old_ROOT
+          block:
+            - name: Deploy vprofile artifact
+              copy:
+                src: "/tmp/vproapp-{{vprofile_version}}"
+                dest: /usr/local/tomcat9/webapps/ROOT.war
+                remote_src: yes
+              register: deploy_info
+              tags:
+                - deploy
+          rescue:
+            - name: Restore old_ROOT if deploy fails
+              shell: cp -r old_ROOT ROOT
+              args:
+                chdir: /usr/local/tomcat9/webapps/
+
+      rescue:
+        - name: Start tomcat service (fallback)
+          service:
+            name: tomcat
+            state: started
 
     - name: Start tomcat service
-      systemd:
+      service:
         name: tomcat
         state: started
+      when: deploy_info.changed
+      tags:
+        - deploy
 
-    - name: Wait until ROOT.war is extracted
+    - name: Wait until ROOT.war is extracted to ROOT directory
       wait_for:
-        path: "{{ dest_dir }}/ROOT"
-        state: present 
-        timeout: 300
+        path: /usr/local/tomcat9/webapps/ROOT
+      tags:
+        - deploy
+
+#    - name: Deploy web configuration file
+#      template:
+#        src: templates/application.j2
+#        dest: /usr/local/tomcat9/webapps/ROOT/WEB-INF/classes/application.properties
+#        force: yes
+#      notify:
+#        - Restart Tomcat
+#      tags:
+#        - deploy
+
+  handlers:
+    - name: Restart Tomcat
+      service:
+        name: tomcat
+        state: restarted
